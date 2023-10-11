@@ -1,0 +1,702 @@
+docker run --rm -it ubuntu /bin/bash
+
+Unable to find image 'ubuntu:latest' locally
+latest: Pulling from library/ubuntu
+37aaf24cf781: Pull complete
+Digest: sha256:9b8dec3bf938bc80fbe758d856e96fdfab5f56c39d44b0cff351e847bb1b01ea
+Status: Downloaded newer image for ubuntu:latest
+root@4eee9fc3d243:/# hostname
+4eee9fc3d243                                 ---------------> The identity of the container
+root@4eee9fc3d243:/# ps                      ---------------> processes running inside the container
+  PID TTY          TIME CMD
+    1 pts/0    00:00:00 bash
+   10 pts/0    00:00:00 ps
+
+
+
+   Namespace is where we limit what the water process can see.
+
+   We just saw a container running and it could only see few of processes on the host
+   and that is because it has got a namespace for process IDs it could only see its own host name that is because of namespacing
+
+
+   We setup these namespaces using siskel's.
+   There are half a dozen of them depending on the version of linux kernel and this is a big part what makes a container a container.
+
+   It is restricting the view of the process have has of the things that are going on on the host machine.
+
+
+
+package main
+
+//docker          run image_name <cmd> <params> 
+// go run main.go run            <cmd> <params>     (go run main.go compiles and runs my executable , we will give image later, then i want my containerized process to run some arbitrary command and there might be some parameters )
+
+func must(err error) {
+	if err != nil{
+		panic(err)
+	}
+}
+
+Now we will have main function first thing we do is look at the command using os.Args[1]
+we check if it is run then we run a function called run() if not we exit using panic 
+
+and then we create run function and for the moment we only print out what it is we'are supposed to be running
+
+
+
+
+
+package main
+
+import "fmt"
+
+//docker          run image <cmd> <params>
+// go run main.go run       <cmd> <params>
+
+func main(){
+	switch os.Args[1]
+    case "run":
+		run()
+	default:
+		panic("bad command")
+
+}
+
+func run () {
+	fmt.Println("Running %v\n", os.Args[2:])
+}
+
+
+
+func must(err error) {
+	if err != nil{
+		panic(err)
+	}
+}
+
+container_with_go> go run main.go run echo hello Interviewer
+
+ [echo hello Interviewer]
+
+ 
+We wanted it to print hello Interviewer but it is not doing that 
+
+
+func run() {
+	fmt.Printf("Running %v\n", os.Args[2:])
+
+	cmd := exec.Command(os.Args[2], os.Args[3:])     ------------> we use exec package Command and Run function for it. Command takes the commands as arguments and Run runs them and wait for completion
+    cmd.Stdin = os.Stdin                             -------------> if we don't do this we can't see anything going on
+    cmd.Stdout = os.Stdout   
+    cmd.Stderr = os.Stderr             
+	cmd.Run()
+}
+
+PS C:\Users\HP\Desktop\container_with_go> go run main.go run echo hello Interviewer
+Running [echo hello Interviewer]
+hello Interviewer                  ----------------> It worked this TIME
+
+
+
+Now we will containerize this command and we are going to do that by creating some namespaces.4
+
+
+func run() {
+	fmt.Printf("Running %v\n", os.Args[2:])
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS,
+	}
+
+	cmd.Run()
+}
+
+
+Here in this cmd structure we specify that we want namespaces which we do by  cmd.SysProcAttr = &syscall.SysProcAttr
+
+and we are passing clone flags (it is called that because cloning is what creates the new process that we are gonna run our arbitrary command in)
+
+
+
+
+It create a new process with a new UTS namespace. The UTS namespace is used to isolate the process from other processes on the system, including the process that created it. This means that the process can have its own hostname, domain name, and other UTS-related settings.
+
+To create a new process with a new UTS namespace, you need to set the CLONE_NEWUTS flag in the SysProcAttr struct. The SysProcAttr struct is used to specify various process attributes, such as the UTS namespace.
+
+
+&syscall.SysProcAttr{ ... }:
+
+&: This is the address-of operator in Go. It's used to get a pointer to a value. In this case, it's creating a pointer to a syscall.SysProcAttr struct.
+syscall.SysProcAttr{ ... }: This is a struct in the syscall package that is used to configure various attributes of the underlying system process.
+Cloneflags: syscall.CLONE_NEWUTS,:
+
+Cloneflags: This is a field within the syscall.SysProcAttr struct. It is used to specify a set of flags that control how the new process should be created.
+syscall.CLONE_NEWUTS: This is a constant defined in the syscall package. It represents a flag that tells the Linux kernel to create a new UTS namespace for the process.
+Now, let's break down what CLONE_NEWUTS and "namespace" mean:
+
+Namespace: In Linux, a namespace is a way to isolate and control certain aspects of a system for a process. It allows processes to have their own view of certain system resources, separate from other processes. For example, there are different types of namespaces for things like network, mount points, and UTS.
+
+UTS Namespace: The UTS namespace is specifically responsible for isolating the hostname and the NIS (Network Information Service) domain name. When you create a new UTS namespace for a process, it means that the process will have its own isolated hostname and domain name. This can be useful for running processes that need to have their own identity within a Linux system.
+
+In summary, it is configuring the cmd object to create a new process with a separate UTS namespace, which means that the process will have its own isolated hostname and domain name. This is just one aspect of process isolation in Linux, and it's often used in containerization technologies like Docker to create isolated environments for applications.
+
+
+The separation of processes using namespaces, such as the UTS namespace created with syscall.CLONE_NEWUTS, happens primarily at the operating system (OS) level, not the hardware level.
+
+ system calls are made from user-level programs to the operating system. When you make a system call, you are essentially requesting a service or action from the operating system, and the operating system carries out that request on your behalf.
+
+In the case of the clone system call, you, as a user or a programmer, can initiate it from your program running in user space. You are instructing the operating system to create a new process or thread according to your specifications. It's like sending a request to the operating system to duplicate or "clone" an existing process or thread.
+
+
+
+You have a Go program running on your computer.
+Inside that Go program, you make a clone system call to create a new process.
+The clone system call creates a new process that is essentially a copy of the Go program that was running. This new process shares certain attributes and resources with the original Go program.
+
+
+By default, when you use clone without any specific flags, the new process or thread shares resources with the parent process. This includes sharing memory space, file descriptors, and other attributes.
+If you specify certain flags, such as CLONE_VM, it means that the new process shares the same memory space with the parent process. This is often used for creating threads within the same process.
+If you specify flags that indicate isolation, such as CLONE_NEWUTS, CLONE_NEWPID, or others related to namespaces, it means that the new process will have its own isolated namespace for specific resources, but it may still share other resources like memory.
+
+
+Parent Process: Your Go program.
+Child Process: The new process created by the clone system call within your Go program.
+
+
+
+User Space:
+
+User space is the portion of memory where regular user-level applications and processes execute. This includes programs like web browsers, text editors, games, and various software applications.
+Applications in user space do not have direct access to hardware or kernel-level resources. Instead, they interact with the operating system through system calls. These system calls act as gateways, allowing user-level programs to request services or actions from the kernel.
+Kernel Space:
+
+Kernel space, also known as kernel mode or privileged mode, is the part of memory where the operating system's kernel runs. The kernel is the core of the operating system, responsible for managing hardware resources, memory, processes, and system services.
+The kernel has unrestricted access to hardware resources and can perform privileged operations, such as managing memory, scheduling processes, and controlling hardware devices.
+User-level applications cannot directly access or modify kernel space. They must go through system calls to request actions from the kernel.
+Hardware Space:
+
+Hardware space, sometimes referred to as machine code or machine language, is the lowest level of memory where the actual hardware instructions are executed.
+The hardware space contains the binary instructions that make up the computer's central processing unit (CPU) instructions.
+User-level programs and even the operating system's kernel itself ultimately rely on these hardware instructions to perform tasks.
+
+
+
+Cloneflags: syscall.CLONE_NEWUTS,
+	
+    unix time sharing system namespace is  the hostname but this is going to have our own hostname inside the container.
+So we can see its own it can't see what is happening on the host.
+
+
+
+root@44d2ac6a5c2c:~# go run main.go run /bin/bash
+Running [/bin/bash]
+root@44d2ac6a5c2c:~# hostname
+44d2ac6a5c2c.mylabserver.com           ----------> hostname is inherited from my host machine
+root@44d2ac6a5c2c:~# hostname container ----------> changed the host machine
+root@44d2ac6a5c2c:~# hostname          -----------> 
+container
+root@44d2ac6a5c2c:~# exit
+exit
+root@44d2ac6a5c2c:~# hostname 
+44d2ac6a5c2c.mylabserver.com          -----------> here we can see hostmachine was not affected, so we have started to containerize my process.
+
+right now it is difficult to tell if i am inside my container or not
+
+
+so now we wish to set the hostname 
+
+using 
+
+syscall.Sethostname([]byte("container"))
+
+
+
+
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS,
+	}
+
+	cmd.Run()
+
+	syscall.Sethostname([]byte("container"))
+}
+
+if i call it after cmd.Run() method is completed which basically runs and wait for the command to complete.
+
+
+that doesn't complete until after i'have exited the command that i have to run. So we can't do it after
+
+
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS,
+	}
+     
+    
+    
+	cmd.Run()
+
+	
+I can't do it above it also because even though I specify that I want my namespace here it's not until inside this run method that we actually
+clone this new process
+
+(In your Go code, when you create an exec.Cmd instance and set its attributes, such as the Cloneflags for the UTS namespace, the new process is not created yet. 
+The creation of the new process occurs when you call cmd.Run(). This is when the specified command (e.g., /bin/bash) is executed in a new process with the specified attributes.
+Until cmd.Run() or a similar method is called, the new process is not launched, and no execution of the specified command takes place.)
+
+
+We can't do it before we can't do it before
+
+So when we finally create a new process using cmd.Run
+
+for running my command to setup hostname we are going to run another process.
+
+
+
+
+
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"syscall"
+)
+
+//docker          run image <cmd> <params>
+// go run main.go run       <cmd> <params>
+
+func main() {
+	switch os.Args[1] {
+	case "run":
+		run()
+	case "child":
+		child()
+	default:
+		panic("bad command")
+	}
+
+}
+
+func run() {                                    ------------------------> this creates the namespace
+	fmt.Printf("Running %v\n", os.Args[2:])
+
+	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS,
+	}
+
+	cmd.Run()
+
+}
+
+func child() {
+	fmt.Printf("Running %v\n", os.Args[2:])
+	
+    syscall.Sethostname([]byte("container"))
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+
+The run and child functions work together to create a new process with a separate UTS namespace, set the hostname for that new process, and then run the user-specified command within that isolated environment. 
+Here's how they work together:
+
+When you execute the program with go run main.go run /bin/bash, the main function is called, and it checks the first command-line argument, which is "run" in this case.
+
+The main function then calls the run function because the argument is "run":
+
+go
+Copy code
+case "run":
+    run()
+Inside the run function:
+
+It prints a message indicating that it's about to run a command.
+It creates a new command that is essentially the same program (/proc/self/exe) but with the argument "child" followed by any additional arguments passed by the user (in this case, "/bin/bash").
+It sets up the standard input, output, and error for the new command to use the same as the parent process (your terminal).
+It specifies that a new UTS namespace (CLONE_NEWUTS) should be created for the new process.
+After setting up the command, it runs it using cmd.Run(). This effectively creates a new process with a separate UTS namespace. 
+The new process starts executing from the beginning of the program, but this time the main function identifies the first command-line argument as "child" instead of "run."
+
+The main function now calls the child function because the argument is "child":
+
+case "child":
+    child()
+Inside the child function:
+
+It prints a message indicating that it's running a command.
+It sets the hostname of the container to "container" using syscall.Sethostname.
+It creates a new command to run the user-specified command ("/bin/bash" in this case) along with its arguments.
+It sets up the standard input, output, and error for the new command to use the same as the parent process (your terminal).
+Finally, it runs the new command, which executes the user-specified command ("/bin/bash" in this case) within the isolated container-like environment.
+
+So, in summary, the run function is responsible for setting up the new process with a separate UTS namespace, and it does this by creating a new command and specifying the CLONE_NEWUTS flag. When it runs this new command, it effectively triggers the child function to be executed in the isolated environment, where it further sets the hostname and runs the user-specified command. This separation of responsibilities between run and child allows for the creation of a container-like environment with isolated hostname and execution of arbitrary commands within that environment.
+
+
+
+
+
+
+
+
+
+
+
+root@44d2ac6a5c2c:~# go run main.go run /bin/bash
+Running [/bin/bash]
+Running [/bin/bash]
+
+
+
+root@container:~# ps         ---------------> New hostname picked!!!!
+    PID TTY          TIME CMD
+  13115 pts/1    00:00:00 sudo
+  13116 pts/1    00:00:00 su
+  13117 pts/1    00:00:00 bash
+  13373 pts/1    00:00:00 go
+  13410 pts/1    00:00:00 main
+  13414 pts/1    00:00:00 exe
+  13418 pts/1    00:00:00 bash
+  13425 pts/1    00:00:00 ps
+
+I want to see these starting from 1
+
+
+
+func run() {
+	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())         ---------> to print it 
+
+	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS, syscall.CLONE_NEWPID,       -------------> added this flag
+	}
+
+	cmd.Run()
+
+}
+
+
+Even making these changes didn't worked.
+
+Because ps doesn't kind of magically get the process information directly it gets ir from /proc directory
+
+
+root@44d2ac6a5c3c:~# ls -l /proc/self/exe
+lrwxrwxrwx 1 root root 0 Oct 10 21:28 /proc/self/exe -> /usr/bin/ls
+root@44d2ac6a5c3c:~# ls -l /proc/self/exe
+lrwxrwxrwx 1 root root 0 Oct 10 21:28 /proc/self/exe -> /usr/bin/ls
+root@44d2ac6a5c3c:~# ls -l /proc/self
+lrwxrwxrwx 1 root root 0 Oct 10 21:21 /proc/self -> 2139
+root@44d2ac6a5c3c:~# ls -l /proc/self
+lrwxrwxrwx 1 root root 0 Oct 10 21:21 /proc/self -> 2140
+root@44d2ac6a5c3c:~# ls -l /proc/self
+lrwxrwxrwx 1 root root 0 Oct 10 21:21 /proc/self -> 2141
+root@44d2ac6a5c3c:~# ls -l /proc/self
+lrwxrwxrwx 1 root root 0 Oct 10 21:21 /proc/self -> 2142
+
+
+here we can notice /proc/self changes as we start the new Process
+
+now if we can notice that ls /proc inside the root user of host machine and inside container have exact same values.
+(Check screenshort)
+
+We have to change the route of what a container can see.
+
+
+
+
+func child() {
+	fmt.Printf("Running %v\n", os.Args[2:])
+
+	syscall.Sethostname([]byte("container"))
+	syscall.Chroot("/root/vagrant/ubuntu-fs")
+	sys.Chdir("/")
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+
+
+now 
+go run main.go run /bin/bash
+
+you get inside your new process with the hostname setup 
+
+and if you do ls /
+
+you will notice the new 
+
+
+
+root@44d2ac6a5c3c:~/vagrant/ubuntu-fs# ls
+CONTAINER_FILE_SYSTEM  bin  boot  dev  etc  home  lib  lib32  lib64  libx32  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+root@44d2ac6a5c3c:~/vagrant/ubuntu-fs# pwd
+/root/vagrant/ubuntu-fs
+
+
+root@container:/# ls
+CONTAINER_FILE_SYSTEM  bin  boot  dev  etc  home  lib  lib32  lib64  libx32  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+root@container:/# pwd
+/
+
+
+
+So we have limited the view of file system
+
+
+
+
+
+root@container:/# sleep 100
+
+
+
+root@44d2ac6a5c3c:~/vagrant/ubuntu-fs# ps -C sleep
+    PID TTY          TIME CMD
+  18555 pts/4    00:00:00 sleep
+root@44d2ac6a5c3c:~/vagrant/ubuntu-fs# ls -l /proc/18555/root
+lrwxrwxrwx 1 root root 0 Oct 10 22:34 /proc/18555/root -> /root/vagrant/ubuntu-fs
+
+
+That is pretty much equivalent of a container image when you specify the image it takes a copy of the file system that is 
+packed up in that image and unpacks it somewhere on your host machine chroot the container to see that new file system.
+
+
+root@container:/# ps
+Error, do this: mount -t proc proc /proc
+root@container:/# ls /proc
+
+
+It turns out that proc is a pseudo file system it is a mechanism for the kernel and the user space to share information.
+
+
+at the moment the inside the / directory in my container we have nothing like /proc and we need to add that directory as a proxy pseudo file system.
+
+So that the kernel knows that 
+
+We are going to populate that information about these running processes.
+
+
+
+func child() {
+	fmt.Printf("Running %v\n", os.Args[2:])
+
+	syscall.Sethostname([]byte("container"))
+	syscall.Chroot("/root/vagrant/ubuntu-fs")
+	syscall.Chdir("/")
+	sys.Chdir("/")
+	syscall.Mount("proc", "proc", "proc", 0, "")
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+
+	syscall.Unmount("/proc", 0)
+}
+
+
+
+root@container:/# ls /proc
+1           buddyinfo  cpuinfo    driver         fs          kallsyms   kpagecgroup  mdstat   mtrr          schedstat  stat           thread-self  version_signature
+12          bus        crypto     dynamic_debug  interrupts  kcore      kpagecount   meminfo  net           scsi       swaps          timer_list   vmallocinfo
+5           cgroups    devices    execdomains    iomem       key-users  kpageflags   misc     pagetypeinfo  self       sys            tty          vmstat
+acpi        cmdline    diskstats  fb             ioports     keys       loadavg      modules  partitions    slabinfo   sysrq-trigger  uptime       zoneinfo
+bootconfig  consoles   dma        filesystems    irq         kmsg       locks        mounts   pressure      softirqs   sysvipc        version
+
+
+It worked
+
+root@container:/# mount
+proc on /proc type proc (rw,relatime)
+
+
+
+
+syscall.CLONE_NEWNS, added this to the list of flags (It is called new namespace apparantely this was the first of the namespaces to be invented and added to the kernel and they called it namespace but it is really for maps.)
+
+By default under systemd mounts get recursively shared property and at the moment mt root directory on my host recursively shares between all namespaces
+I have to deliberately turn that off with an unshareflags  for the new namespace 
+
+
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+        cmd.SysProcAttr = &syscall.SysProcAttr{
+                Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+                Unshareflags: syscall.CLONE_NEWNS,
+        }
+
+        cmd.Run()
+
+
+root@44d2ac6a5c3c:~# ls proc
+ls: cannot access 'proc': No such file or directory
+
+isolated
+
+root@container:/# ls proc
+1           buddyinfo  cpuinfo    driver         fs          kallsyms   kpagecgroup  mdstat   mtrr          schedstat  stat           thread-self  version_signature
+14          bus        crypto     dynamic_debug  interrupts  kcore      kpagecount   meminfo  net           scsi       swaps          timer_list   vmallocinfo
+5           cgroups    devices    execdomains    iomem       key-users  kpageflags   misc     pagetypeinfo  self       sys            tty          vmstat
+acpi        cmdline    diskstats  fb             ioports     keys       loadavg      modules  partitions    slabinfo   sysrq-trigger  uptime       zoneinfo
+bootconfig  consoles   dma        filesystems    irq         kmsg       locks        mounts   pressure      softirqs   sysvipc        version
+
+
+
+root@44d2ac6a5c3c:~# cat /proc/18995/mounts
+proc /proc proc rw,relatime 0 0
+
+
+
+
+What we covered till now?
+
+Namespaces for UNIX TimeSharing system
+               Process IDs 
+               Mounts
+
+
+Other things like network, userIDs and InterProcess Comms are similarly isolated.
+
+
+
+CGroups ( COntrol Groups)
+
+Namespaces restricted what we can see from inside the container
+
+CGroup limits  the resources we can use inside it.
+
+It is configured using another one of these pseudo file system interfaces   
+another set of look alike directories and files
+we can manipulate them to set properties that we want the kernel to understand 
+and the kernel will write information into the file system so that we can read it backout again.
+
+
+Memory allowed, CPU, I/O, Process number
+
+
+
+root@44d2ac6a5c3c:/sys/fs/cgroup# ls
+cgroup.controllers      cgroup.stat             cpuset.cpus.effective  io.cost.model  memory.numa_stat  proc-sys-fs-binfmt_misc.mount  system.slice
+cgroup.max.depth        cgroup.subtree_control  cpuset.mems.effective  io.cost.qos    memory.pressure   sys-fs-fuse-connections.mount  user.slice
+cgroup.max.descendants  cgroup.threads          dev-hugepages.mount    io.pressure    memory.reclaim    sys-kernel-config.mount
+cgroup.pressure         cpu.pressure            dev-mqueue.mount       io.prio.class  memory.stat       sys-kernel-debug.mount
+cgroup.procs            cpu.stat                init.scope             io.stat        misc.capacity     sys-kernel-tracing.mount
+
+
+so when you create a docker container
+
+say docker run --rm -it ubuntu /bin/bash
+
+
+and on host if you check 
+
+/sys/fs/cgroup/memory/docker
+
+we get directory started with the same value as id of the container.
+
+If we do cat on  file_name/memory.limit_in_bytes
+it you will see it is unrestricted.
+
+
+now if you do
+
+docker run --rm 0it --memory=10M ubuntu /bin/bash
+
+and do cat on file
+
+file_name/memory.limit_in_bytes
+
+you will get a value which is around 10M
+
+
+So we are going to do the same kind of thing
+
+also when you check cat /sys/fs/cgroup/pids/docker/pids.max you will find it to set to max but we will set a limit
+
+
+
+
+
+
+func cg() {
+	cgroups := "/sys/fs/cgroup"
+	pids := filepath.Join(cgroup, "pids")
+	err := os.Mkdir(filepath.Join(pids, "liz"), 0755)
+	if err != nil && !os.IsExist(err) {
+		panic(err)
+	}
+	must(ioutil.WriteFile(filePath.Joins(pids, "liz/pids.max"), []byte("20"), 0700))
+	//remove the new cgroup in place after the container exits
+	must(ioutil.WriteFile(filePath.Joins(pids, "liz/notify_on_release"), []byte("1"), 0700))
+	must(ioutil.WriteFile(filePath.Joins(pids, "liz=/cgroup.procs"), []byte(strconv.Iota(os.Getpid())), 0700))
+}
+
+
+going to cgroup then to pids inside that we are creating a directory called liz
+inside that we are putting a limit on pids to 20
+
+this in last line os.Getpid())) we are getting the current process id and writing it into the file cgroup.procs 
+which basically says that this process is now a member of this control group
+
+
+
+
+go run main.go run /bin/bash
+
+
+after this when you go to /sys/fs/cgroup/liz in host machine we  have pids.max which will have the value of 20
+
+
+now do sleep 100 in container
+
+in host do ps -C sleep
+and check cat /sys/fs/cgroup/liz/cgroup.procs you should have the same id
+
+
+We use : () { :|" & } ;:     this is a fork bomb
+
+
+The code you posted is a malicious piece of Bash code known as a "Fork Bomb." It's designed to create a large number of processes, which can quickly consume system resources and cause a system to become unresponsive or crash. Let's break down how this code works:
+
+: (): This defines a Bash function named : (a colon). The function is empty and doesn't perform any actual tasks.
+
+{ :| "& }: This part is where the magic happens. It uses a recursive technique to call the function : within itself. Here's how it works:
+
+: is called, which in turn calls itself in the background (with :).
+The pipe symbol | connects the output of one : function to the input of another, creating a continuous loop.
+& puts the command in the background, allowing the code to run concurrently.
+} closes the code block.
+;: The semicolon is used to terminate the code on the same line.
+
+
+cat /sys/fs/cgroup/pids/liz/pids.current
+
+
+only run it when it is constrained.
+

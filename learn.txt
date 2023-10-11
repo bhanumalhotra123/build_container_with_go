@@ -14,13 +14,13 @@ root@4eee9fc3d243:/# ps                      ---------------> processes running 
 
 
 
-   Namespace is where we limit what the water process can see.
+   Namespace is where we limit what the process can see.
 
    We just saw a container running and it could only see few of processes on the host
    and that is because it has got a namespace for process IDs it could only see its own host name that is because of namespacing
 
 
-   We setup these namespaces using siskel's.
+   We setup these namespaces using .
    There are half a dozen of them depending on the version of linux kernel and this is a big part what makes a container a container.
 
    It is restricting the view of the process have has of the things that are going on on the host machine.
